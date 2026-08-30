@@ -42,16 +42,19 @@ for (let i = 0; i < argv.length; i++) {
 const listFile = has("--list") ? flagVal("--list") : positional.find((a) => a.toLowerCase().endsWith(".txt"));
 const urls = positional.filter((a) => /^https?:\/\//i.test(a));
 
-// cookies/auth: only reliable way to reach age-restricted videos (YouTube requires sign-in for those since Oct 2024).
-// Also: --js-runtimes node explicitly enables the EJS challenge solver (node is a hard requirement of this script,
-// but yt-dlp only auto-enables deno; without a solver, authenticated web downloads fail with "page needs to be reloaded")
-const BROWSER = flagVal("--cookies-from-browser");
-const COOKIES = (() => {
-  const explicit = flagVal("--cookies");
-  const p = explicit ? path.resolve(explicit)
+function specFromFile() { // cookie-spec.txt (written by the installer): one --cookies-from-browser spec per line, # comments ok
+  try {
+    return readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "cookie-spec.txt"), "utf8")
+      .split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))[0] || null;
+  } catch { return null; }
+}
+const explicitCookies = flagVal("--cookies");
+const BROWSER = flagVal("--cookies-from-browser") || (!explicitCookies ? specFromFile() : null);
+const COOKIES = BROWSER ? null : (() => {
+  const p = explicitCookies ? path.resolve(explicitCookies)
     : process.env.SOUNDTECH_COOKIES ? path.resolve(process.env.SOUNDTECH_COOKIES)
     : path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "cookies.txt");
-  if (explicit && !existsSync(p)) console.error(`WARNING: --cookies file not found: ${p}`);
+  if (explicitCookies && !existsSync(p)) console.error(`WARNING: --cookies file not found: ${p}`);
   return existsSync(p) ? p : null;
 })();
 const AUTH = Boolean(BROWSER || COOKIES); // authenticated => age-restricted videos are downloadable

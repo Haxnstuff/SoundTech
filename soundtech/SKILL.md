@@ -61,7 +61,7 @@ One `Song - Artist` per line (`Song_Artist` also works, `#` lines skipped). Each
 
 YouTube requires sign-in for age-restricted videos (no client trick works). Pass credentials with either:
 
-**Option A — browser cookies (zero files):** pass `--cookies-from-browser SPEC`. Firefox-based browsers (incl. Zen) are **not** in yt-dlp's browser list by name — point at the profile:
+**Option A — browser cookies (zero files):** the **installer** detects installed browsers (Chromium/Blink, Gecko/Firefox incl. Zen/LibreWolf/Waterfox/Floorp, WebKit/Safari on macOS) and writes the spec to `cookie-spec.txt` next to the script — the script then picks it up automatically. Manual equivalent: pass `--cookies-from-browser SPEC`. Firefox-based browsers are **not** in yt-dlp's browser list by name — point at the profile:
 
 ```
 --cookies-from-browser "firefox:C:\Users\<you>\AppData\Roaming\zen\Profiles\<profile>"

@@ -61,5 +61,54 @@ if [ -d "$HOME/.pi/agent" ]; then
   say "[pi] /soundtech command installed" "$GREEN"
 fi
 
+# --- optional: age-restricted video support (browser cookie auth + EJS challenge solver) ---
+# Engine coverage: Chromium/Blink -> named browsers (google-chrome, microsoft-edge, brave-browser,
+# vivaldi, opera, chromium); Gecko/Firefox (incl. SpiderMonkey forks: Zen, LibreWolf, Waterfox,
+# Floorp) -> "firefox:<profile path>"; WebKit -> safari (macOS only).
+say ""
+read -r -p "Set up age-restricted video downloads (browser cookie auth)? [Y/n] " ans
+case "$ans" in
+[nN]*)
+  say "[auth] skipped - age-restricted videos will be flagged AGE-RESTRICTED (fixable later, see SKILL.md)." "$GRAY"
+  ;;
+*)
+  # EJS solver for pip-installed yt-dlp (bundled exe builds don't need it); non-fatal if unavailable
+  if have pip3; then
+    pip3 install -U "yt-dlp[default]" >/dev/null 2>&1 || pip3 install --break-system-packages -U "yt-dlp[default]" >/dev/null 2>&1 || true
+  elif have pip; then pip install -U "yt-dlp[default]" >/dev/null 2>&1 || true
+  fi
+  FOUND=()
+  for b in google-chrome microsoft-edge brave-browser vivaldi opera chromium; do
+    [ -d "$HOME/.config/$b" ] && FOUND+=("$b")
+  done
+  if [ "$(uname)" = "Darwin" ]; then
+    [ -d "$HOME/Library/Application Support/Google/Chrome" ] && FOUND+=("chrome")
+    [ -d "$HOME/Library/Safari" ] && FOUND+=("safari") # WebKit
+  fi
+  # Gecko-based: firefox adapter + profile path (any fork)
+  GECKO_DIRS="$HOME/.mozilla/firefox $HOME/.zen $HOME/.librewolf $HOME/.waterfox $HOME/.floorp"
+  [ "$(uname)" = "Darwin" ] && GECKO_DIRS="$GECKO_DIRS $HOME/Library/Application Support/Firefox $HOME/Library/Application Support/zen"
+  for d in $GECKO_DIRS; do
+    [ -d "$d" ] || continue
+    p=$(find "$d" -mindepth 1 -maxdepth 1 -type d -exec test -f "{}/cookies.sqlite" \; -print 2>/dev/null | head -1)
+    [ -n "$p" ] && FOUND+=("firefox:$p")
+  done
+  if [ "${#FOUND[@]}" -eq 0 ]; then
+    say "[auth] no supported browser found - export cookies.txt manually instead (see SKILL.md)." "$YELLOW"
+  else
+    say "[auth] browsers with supported cookie engines found:" "$CYAN"
+    i=1; for s in "${FOUND[@]}"; do say "  $i. $s"; i=$((i+1)); done
+    read -r -p "Use which one for YouTube? [1] " pick
+    n=${pick:-1}
+    case "$n" in ''|*[!0-9]*) n=1 ;; esac
+    if [ "$n" -lt 1 ] || [ "$n" -gt "${#FOUND[@]}" ]; then n=1; fi
+    spec=${FOUND[$((n-1))]}
+    printf '%s\n' "$spec" > "$REPO/soundtech/cookie-spec.txt"
+    for t in ${TARGETS[@]:-}; do [ -n "$t" ] && printf '%s\n' "$spec" > "$t/soundtech/cookie-spec.txt"; done
+    say "[auth] '$spec' written to cookie-spec.txt - age-restricted downloads now work. Keep this file private (gitignored)." "$GREEN"
+  fi
+  ;;
+esac
+
 say ""
 say "Done. Restart/reload your agent, then use /soundtech <url> or /soundtech <song>_<artist>." "$CYAN"
