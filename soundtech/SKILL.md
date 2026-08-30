@@ -15,6 +15,8 @@ Download music at 320kbps MP3 with correct ID3 metadata using the bundled script
 node <path-to-this-skill>/scripts/soundtech.mjs <args> --out <output-dir>
 ```
 
+Flags: `--out DIR` (or `$SOUNDTECH_OUT`), `--cookies PATH` (or `cookies.txt` in the skill folder), `--ask`/`--pick N` (candidate selection).
+
 Default output dir: `$SOUNDTECH_OUT` env var or `./soundtech-downloads`. Always pass `--out` if the user names a destination folder.
 
 ## Mode 1: URL
@@ -55,13 +57,25 @@ node scripts/soundtech.mjs --list songs.txt --out DIR
 
 One `Song - Artist` per line (`Song_Artist` also works, `#` lines skipped). Each line goes through search mode. With `--ask`, the script stops with exit 2 at the first ambiguous line — resolve it with `--pick`, then re-run (already-downloaded songs are skipped automatically, so re-running is safe and cheap).
 
+## One-time setup: age-restricted videos
+
+YouTube requires sign-in for age-restricted videos (no client trick works). To unlock them, export cookies **once**:
+
+1. In a browser signed into your (age-verified) YouTube account, install the **"Get cookies.txt LOCALLY"** extension.
+2. Go to https://youtube.com, click the extension, **Export** (Netscape format).
+3. Save the file as `cookies.txt` in this skill's folder (`<skill-dir>/soundtech/cookies.txt`).
+
+The script then picks it up automatically for every download. Alternatives: `--cookies PATH` or the `SOUNDTECH_COOKIES` env var. Keep the file private — it contains your session credentials (it's gitignored).
+
+Without a cookies file, age-restricted tracks are logged `AGE-RESTRICTED` (search mode still tries non-gated alternate uploads first).
+
 ## After any run
 
 **Exit codes:** `0` = everything downloaded (or already existed) · `1` = one or more failures (or usage error — read the log) · `2` = decision needed: `SOUNDTECH_ASK` JSON was printed on stdout; ask the user and re-run with `--pick`.
 
 - The script logs to `DIR/soundtech.log`. Read it to report OK/FAIL/SKIP counts.
 - Failures to recognize and handle:
-  - `age-restricted, no clean alternate` → tell the user; a logged-in browser cookie export (`--cookies-from-browser`) would fix it, but Chrome/Edge cookies often fail to decrypt (see playbook).
+  - `AGE-RESTRICTED` → one-time fix: export cookies.txt per the setup section above (a browser-encrypted `--cookies-from-browser` export often fails to decrypt on Chrome/Edge — see playbook).
   - `403 / timeout` → YouTube is throttling the IP. Wait 60s and retry; do NOT increase parallelism (it makes throttling worse).
   - Re-running any mode is idempotent — existing files are skipped.
 

@@ -1,0 +1,3 @@
+# cookie exports contain live session credentials — never commit
+soundtech/cookies.txt
+*.cookies.txt

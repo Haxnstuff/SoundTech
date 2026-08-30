@@ -84,8 +84,10 @@ ffprobe -v error -show_entries format=bit_rate:format_tags=title,artist,album -o
 
 ## 5. Age-restricted and unavailable videos
 
-- Age gate (`Sign in to confirm your age`): no player client bypasses it anymore (`tv`, `ios`, `mweb`, `web_safari` all fail). Only cookies work — and see the DPAPI caveat above.
-- Practical workaround: probe `%(age_limit)s` with `--skip-download --print "%(age_limit)s"` on candidate uploads; download the first with `age_limit == 0`. A song usually has several uploads; only some are age-gated.
+- Age gate (`Sign in to confirm your age`): **no player client bypasses it anymore** — YouTube requires sign-in for age-restricted videos since Oct 2024 (yt-dlp issue #11296). Verified empirically: `default`, `android`, `ios`, `tv`, `tv_embedded`, `web_embedded` all fail without authentication.
+- **The fix is a one-time cookies.txt export** (the script picks it up automatically — see SKILL.md): in a browser signed into an age-verified YouTube account, install the "Get cookies.txt LOCALLY" extension, go to youtube.com, export `cookies.txt`, save it next to the skill as `soundtech/cookies.txt` (or pass `--cookies PATH` / set `SOUNDTECH_COOKIES`). This also sidesteps the Chrome/Edge DPAPI/app-bound-encryption problem with `--cookies-from-browser` — an exported text file never needs to decrypt the browser's cookie store.
+- **Parabolic and other GUI downloaders do not help** — they are yt-dlp frontends and hit the identical wall (Parabolic itself removed browser-cookie support on Windows and recommends manual cookies.txt).
+- Without cookies, the script flags such tracks `AGE-RESTRICTED` and, in search mode, tries clean (non-gated) alternate uploads first. With cookies present, age-restricted videos are downloaded directly like any other.
 - Songs that exist ONLY age-gated or nowhere: check SoundCloud (`yt-dlp "scsearch5:artist song"` or direct `https://api.soundcloud.com/tracks/...` URLs — yt-dlp accepts those api URLs directly).
 - Profanity in titles: YouTube search sometimes returns 0 results for it; try masked variants ("f**k") or search the album name instead.
 

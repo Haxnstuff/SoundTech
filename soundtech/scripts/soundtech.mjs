@@ -9,6 +9,8 @@
 //
 // Flags:
 //   --out DIR     output directory (default: $SOUNDTECH_OUT or ./soundtech-downloads)
+//   --cookies P   Netscape-format cookies.txt for age-restricted videos (default: $SOUNDTECH_COOKIES,
+//                 else cookies.txt next to this skill's folder; absent = age-restricted tracks are flagged)
 //   --ask         when multiple album versions are found: print them as JSON on stdout and exit(2),
 //                 so a calling agent can ask the user and re-run with --pick (script has no TTY in agent shells)
 //   --pick 1,3    select candidate number(s) from a previous --ask listing
@@ -17,6 +19,7 @@
 // Requires on PATH: node >= 18, yt-dlp, ffmpeg.
 
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 import path from "node:path";
@@ -30,12 +33,23 @@ const ASK = has("--ask");
 let PICK = flagVal("--pick"); // consumed by the first ambiguous song it resolves (list mode)
 const positional = [];
 for (let i = 0; i < argv.length; i++) {
-  if (argv[i] === "--out" || argv[i] === "--pick" || argv[i] === "--list") { i++; continue; }
+  if (argv[i] === "--out" || argv[i] === "--pick" || argv[i] === "--list" || argv[i] === "--cookies") { i++; continue; }
   if (argv[i].startsWith("--")) continue;
   positional.push(argv[i]);
 }
 const listFile = has("--list") ? flagVal("--list") : positional.find((a) => a.toLowerCase().endsWith(".txt"));
 const urls = positional.filter((a) => /^https?:\/\//i.test(a));
+
+// cookies: only reliable way to reach age-restricted videos (YouTube requires sign-in for those since Oct 2024)
+const COOKIES = (() => {
+  const explicit = flagVal("--cookies");
+  const p = explicit ? path.resolve(explicit)
+    : process.env.SOUNDTECH_COOKIES ? path.resolve(process.env.SOUNDTECH_COOKIES)
+    : path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "cookies.txt");
+  if (explicit && !existsSync(p)) console.error(`WARNING: --cookies file not found: ${p}`);
+  return existsSync(p) ? p : null;
+})();
+const YC = COOKIES ? ["--cookies", COOKIES] : []; // spread into every yt-dlp call
 
 mkdirSync(OUT, { recursive: true });
 const LOG = path.join(OUT, "soundtech.log");
@@ -99,7 +113,7 @@ function metaMatches(cands, song, artist) {
 // ---------- youtube search + pick ----------
 function ytSearch(query, n = 5) {
   try {
-    const out = run("yt-dlp", ["--flat-playlist", "-J", "--no-warnings", `ytsearch${n}:${query}`], { timeout: 60000 });
+    const out = run("yt-dlp", [...YC, "--flat-playlist", "-J", "--no-warnings", `ytsearch${n}:${query}`], { timeout: 60000 });
     return (JSON.parse(out).entries || []).map((e) => ({
       id: e.id, title: e.title || "",
       dur: typeof e.duration === "number" ? e.duration : Infinity,
@@ -124,7 +138,7 @@ function pickCandidate(cands, dur, title) {
 
 // ---------- download + tag ----------
 function downloadYouTube(ytId, outBase) {
-  const base = ["-x", "--audio-format", "mp3", "--audio-quality", "320K", "--no-playlist", "--no-warnings", "--quiet",
+  const base = [...YC, "-x", "--audio-format", "mp3", "--audio-quality", "320K", "--no-playlist", "--no-warnings", "--quiet",
     "-o", `${outBase}.%(ext)s`, `https://www.youtube.com/watch?v=${ytId}`];
   try {
     run("yt-dlp", ["--extractor-args", "youtube:player_client=android", ...base]);
@@ -142,7 +156,7 @@ function validMp3(file) {
 }
 function probeAge(id) {
   try {
-    const out = run("yt-dlp", ["--skip-download", "--no-warnings", "--print", "%(age_limit)s", `https://www.youtube.com/watch?v=${id}`], { timeout: 60000 });
+    const out = run("yt-dlp", [...YC, "--skip-download", "--no-warnings", "--print", "%(age_limit)s", `https://www.youtube.com/watch?v=${id}`], { timeout: 60000 });
     return parseInt(out.trim()) || 0;
   } catch { return -1; }
 }
@@ -223,8 +237,8 @@ async function searchAndDownload(song, artist) {
     if (!best) best = pickCandidate(ytSearch(c.title), c.duration_s, c.title);
     if (!best) { log(`FAIL no YouTube match: ${c.artist} - ${c.title}`); allOk = false; continue; }
 
-    // age-gated? probe clean alternates
-    if (probeAge(best.id) > 0) {
+    // age-gated? only worth avoiding when we can't authenticate (cookies = age-restricted videos download fine)
+    if (!COOKIES && probeAge(best.id) > 0) {
       log(`  age-restricted (${best.id}), probing alternates...`);
       const alts = ytSearch(`${primaryArtist} ${c.title}`, 10).filter((x) => x.id !== best.id);
       const expectedLive = /\blive\b/i.test(c.title);
@@ -237,7 +251,7 @@ async function searchAndDownload(song, artist) {
         if (probeAge(p.id) !== 0) { sleep(500); continue; }
         okAlt = p; break;
       }
-      if (!okAlt) { log(`FAIL age-restricted, no clean alternate: ${c.artist} - ${c.title}`); allOk = false; continue; }
+      if (!okAlt) { log(`AGE-RESTRICTED no clean alternate: ${c.artist} - ${c.title} | one-time fix: export cookies.txt (see SKILL.md) and place it next to this skill`); allOk = false; continue; }
       best = okAlt;
     }
 
@@ -265,9 +279,11 @@ async function processItem(entry) {
   if (!url) { log("SKIP item without id/url"); return true; }
   let info;
   try {
-    info = JSON.parse(run("yt-dlp", ["-J", "--no-warnings", "--skip-download", url], { timeout: 120000 }));
+    info = JSON.parse(run("yt-dlp", [...YC, "-J", "--no-warnings", "--skip-download", url], { timeout: 120000 }));
   } catch (e) {
-    log(`FAIL extract item: ${entry.title || url} | ${String(e.message || e).slice(0, 150)}`);
+    const msg = String(e.message || e);
+    if (/confirm your age/i.test(msg)) log(`AGE-RESTRICTED: ${entry.title || url} | one-time fix: export cookies.txt (see SKILL.md) and place it next to this skill`);
+    else log(`FAIL extract item: ${entry.title || url} | ${msg.slice(0, 150)}`);
     return false;
   }
   const meta = {
@@ -298,7 +314,7 @@ async function processItem(entry) {
   const outBase = path.join(OUT, sanitize(`${meta.artist.split(",")[0].trim()} - ${meta.title}`));
   if (existsSync(`${outBase}.mp3`)) { log(`SKIP exists: ${meta.artist} - ${meta.title}`); return; }
 
-  const base = ["-x", "--audio-format", "mp3", "--audio-quality", "320K", "--no-playlist", "--no-warnings", "--quiet",
+  const base = [...YC, "-x", "--audio-format", "mp3", "--audio-quality", "320K", "--no-playlist", "--no-warnings", "--quiet",
     "-o", `${outBase}.%(ext)s`, url];
   const downloadAndValidate = (dlUrl, clientId) => {
     const args = clientId ? ["--extractor-args", `youtube:player_client=${clientId}`, ...base.slice(0, -1), dlUrl] : [...base.slice(0, -1), dlUrl];
@@ -319,7 +335,7 @@ async function processItem(entry) {
         const tol = Math.max(20, 0.12 * (info.duration || 0));
         const p = pickCandidate([a], info.duration || 0, meta.title);
         if (!p || (info.duration && p.diff > tol)) continue;
-        if (probeAge(p.id) !== 0) { sleep(500); continue; }
+        if (!COOKIES && probeAge(p.id) !== 0) { sleep(500); continue; }
         ok = downloadAndValidate(`https://www.youtube.com/watch?v=${p.id}`, "android") || downloadAndValidate(`https://www.youtube.com/watch?v=${p.id}`, null);
         if (ok) { log(`  used alternate upload ${p.id}: ${p.title.slice(0, 60)}`); break; }
         try { unlinkSync(`${outBase}.mp3`); } catch {}
@@ -366,9 +382,11 @@ async function urlMode(urls) {
     log(`=== URL ${i}/${urls.length}: ${url} ===`);
     let info = null;
     try {
-      info = JSON.parse(run("yt-dlp", ["-J", "--flat-playlist", "--no-warnings", url], { timeout: 120000 }));
+      info = JSON.parse(run("yt-dlp", [...YC, "-J", "--flat-playlist", "--no-warnings", url], { timeout: 120000 }));
     } catch (e) {
-      log(`FAIL extract: ${url} | ${String(e.message || e).slice(0, 150)}`);
+      const msg = String(e.message || e);
+      if (/confirm your age/i.test(msg)) log(`AGE-RESTRICTED: ${url} | one-time fix: export cookies.txt (see SKILL.md) and place it next to this skill`);
+      else log(`FAIL extract: ${url} | ${msg.slice(0, 150)}`);
       failed++;
       continue;
     }
