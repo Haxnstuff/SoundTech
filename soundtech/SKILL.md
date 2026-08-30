@@ -59,15 +59,21 @@ One `Song - Artist` per line (`Song_Artist` also works, `#` lines skipped). Each
 
 ## One-time setup: age-restricted videos
 
-YouTube requires sign-in for age-restricted videos (no client trick works). To unlock them, export cookies **once**:
+YouTube requires sign-in for age-restricted videos (no client trick works). Pass credentials with either:
 
-1. In a browser signed into your (age-verified) YouTube account, install the **"Get cookies.txt LOCALLY"** extension.
-2. Go to https://youtube.com, click the extension, **Export** (Netscape format).
-3. Save the file as `cookies.txt` in this skill's folder (`<skill-dir>/soundtech/cookies.txt`).
+**Option A — browser cookies (zero files):** pass `--cookies-from-browser SPEC`. Firefox-based browsers (incl. Zen) are **not** in yt-dlp's browser list by name — point at the profile:
 
-The script then picks it up automatically for every download. Alternatives: `--cookies PATH` or the `SOUNDTECH_COOKIES` env var. Keep the file private — it contains your session credentials (it's gitignored).
+```
+--cookies-from-browser "firefox:C:\Users\<you>\AppData\Roaming\zen\Profiles\<profile>"
+```
 
-Without a cookies file, age-restricted tracks are logged `AGE-RESTRICTED` (search mode still tries non-gated alternate uploads first).
+Browsers using Chrome's app-bound cookie encryption (Chrome/Edge) often fail to decrypt — Chromium browsers like Vivaldi or Firefox/Zen are reliable. The browser may need to be closed briefly (cookie DB lock).
+
+**Option B — cookies.txt file:** install the **"Get cookies.txt LOCALLY"** extension in a browser signed into your (age-verified) YouTube account, export from https://youtube.com, save as `cookies.txt` in this skill's folder. Or pass `--cookies PATH` / set `SOUNDTECH_COOKIES`. Keep it private — it contains session credentials (gitignored).
+
+**Also required:** yt-dlp needs a JS challenge runtime for authenticated downloads. Node is enabled automatically by the script (`--js-runtimes node`); on recent yt-dlp (≥2026.08) install with `pip install -U "yt-dlp[default]"` so the `yt-dlp-ejs` solver package is present. Without it, authenticated downloads fail with `The page needs to be reloaded`.
+
+Without auth, age-restricted tracks are logged `AGE-RESTRICTED` (search mode still tries non-gated alternate uploads first).
 
 ## After any run
 
